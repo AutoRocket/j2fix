@@ -53,26 +53,18 @@ of the configuration text itself stays intact in default mode.
 
 Requires **Python 3.10 or newer**. Jinja2 and `j2lint` are installed automatically.
 
-Install the tagged version directly from GitHub:
+Install with pip
+
+```bash
+pip install j2fix
+j2fix --version
+```
+
+Install the version directly from GitHub:
 
 ```bash
 python -m pip install "git+https://github.com/AutoRocket/j2fix.git@v0.2.0"
 j2fix --version
-```
-
-Git must be installed for this method. While the repository is private, you need
-access to it and GitHub authentication configured for Git.
-
-Once `0.2.0` has been published to PyPI, you can install it with:
-
-```bash
-python -m pip install "j2fix==0.2.0"
-```
-
-Expected version output:
-
-```text
-j2fix 0.2.0
 ```
 
 ## Quick start
@@ -284,3 +276,7 @@ CI is configured to test Python 3.10–3.14 and validate the built distributions
 ## License
 
 Released under the [MIT license](https://github.com/AutoRocket/j2fix/blob/main/LICENSE).
+
+Acknowledgments
+
+This project is based on j2lint [Arista Networks' `j2lint`](https://github.com/aristanetworks/j2lint)
