@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import difflib
-import logging
 import sys
-import tempfile
 from pathlib import Path
 
 from j2lint.linter.collection import DEFAULT_RULE_DIR, RulesCollection
+from j2lint.linter.error import LinterError
+from j2lint.utils import is_rule_disabled
 
 from . import __version__
 from .config import Config, discover_config, load_config
@@ -46,6 +46,8 @@ def _files(paths: list[str], config: Config) -> list[Path]:
     found: set[Path] = set()
     for value in paths:
         path = Path(value)
+        if not path.exists():
+            raise FileNotFoundError(f"input does not exist: {path}")
         if path.is_file() and path.suffix.lower() in suffixes:
             found.add(path)
         elif path.is_dir():
@@ -57,17 +59,23 @@ def _files(paths: list[str], config: Config) -> list[Path]:
     return sorted(found)
 
 
-def _lint(path: Path) -> list[object]:
-    logging.disable(logging.CRITICAL)
+def _lint(text: str, filename: str) -> list[LinterError]:
+    """Validate text directly, avoiding temporary files and global logging changes."""
     collection = RulesCollection.create_from_directory(DEFAULT_RULE_DIR, [], [])
-    errors, _ = collection.run(path)
+    errors = []
+    for rule in collection:
+        if not is_rule_disabled(text, rule):
+            errors.extend(rule.checkrule(filename, text))
     return errors
 
 
 def _show_diff(name: str, old: str, new: str) -> None:
-    sys.stdout.writelines(
-        difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True), fromfile=name, tofile=name)
-    )
+    for line in difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True), fromfile=name, tofile=name
+    ):
+        sys.stdout.write(line)
+        if not line.endswith("\n"):
+            sys.stdout.write("\n\\ No newline at end of file\n")
 
 
 def _process_stdin(options: FormatOptions, *, check: bool, diff: bool, lint: bool) -> int:
@@ -78,21 +86,16 @@ def _process_stdin(options: FormatOptions, *, check: bool, diff: bool, lint: boo
     elif not check:
         sys.stdout.write(formatted)
     changed = original != formatted
-    lint_errors = []
-    if lint:
-        with tempfile.NamedTemporaryFile("w", suffix=".j2", encoding="utf-8") as file:
-            file.write(formatted)
-            file.flush()
-            lint_errors = _lint(Path(file.name))
+    lint_errors = _lint(formatted, "stdin") if lint else []
     for error in lint_errors:
         print(f"stdin:{error.line_number}: {error.message} ({error.rule.rule_id})", file=sys.stderr)
-    return 1 if lint_errors or (check and changed) else 0
+    return 1 if lint_errors or ((check or diff) and changed) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    config_path = args.config_file or discover_config(Path.cwd())
     try:
+        config_path = args.config_file or discover_config(Path.cwd())
         config = load_config(config_path)
     except (OSError, ValueError) as error:
         print(f"j2fix: invalid configuration: {error}", file=sys.stderr)
@@ -108,7 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         print("j2fix: stdin cannot be combined with file paths", file=sys.stderr)
         return 2
 
-    files = _files(args.paths, config)
+    try:
+        files = _files(args.paths, config)
+    except OSError as error:
+        print(f"j2fix: {error}", file=sys.stderr)
+        return 2
     if not files:
         print("j2fix: no Jinja2 templates found", file=sys.stderr)
         return 2
@@ -117,7 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     lint_count = 0
     for path in files:
         try:
-            original = path.read_text(encoding="utf-8")
+            with path.open(encoding="utf-8", newline="") as file:
+                original = file.read()
             formatted = format_text(original, options)
             changed = original != formatted
             if changed:
@@ -127,24 +135,16 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.check:
                     print(f"would reformat {path}")
                 else:
-                    path.write_text(formatted, encoding="utf-8")
+                    with path.open("w", encoding="utf-8", newline="") as file:
+                        file.write(formatted)
                     print(f"reformatted {path}")
 
             if lint:
-                lint_path = path
-                temporary = None
-                if (args.check or args.diff) and changed:
-                    temporary = tempfile.NamedTemporaryFile("w", suffix=path.suffix, encoding="utf-8")
-                    temporary.write(formatted)
-                    temporary.flush()
-                    lint_path = Path(temporary.name)
-                errors = _lint(lint_path)
-                if temporary:
-                    temporary.close()
+                errors = _lint(formatted, str(path))
                 lint_count += len(errors)
                 for error in errors:
                     print(f"{path}:{error.line_number}: {error.message} ({error.rule.rule_id})", file=sys.stderr)
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             print(f"j2fix: {path}: {error}", file=sys.stderr)
             return 2
 

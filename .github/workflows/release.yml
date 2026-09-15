@@ -23,7 +23,12 @@ jobs:
           cache: pip
 
       - name: Install build tools
-        run: python -m pip install --upgrade build twine
+        run: python -m pip install --upgrade build twine pytest ruff
+
+      - name: Check source quality
+        run: |
+          ruff check .
+          ruff format --check .
 
       - name: Build distributions
         run: python -m build
@@ -34,7 +39,9 @@ jobs:
       - name: Install and smoke-test wheel
         run: |
           python -m pip install --force-reinstall dist/*.whl
+          python -m pip check
           j2fix --version
+          python -m pytest
 
       - name: Verify release tag matches package version
         run: |
@@ -68,4 +75,3 @@ jobs:
 
       - name: Publish distributions
         uses: pypa/gh-action-pypi-publish@release/v1
-

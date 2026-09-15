@@ -16,9 +16,9 @@ The formatter targets Arista j2lint 1.3's rules:
 | S0 | Valid Jinja syntax | Validated by j2lint |
 | S1 | One space inside expression delimiters | Fixed |
 | S2 | Spaces around `\|`, `+`, and `==` | Fixed |
-| S3 | Four-space nesting inside statement delimiters | Fixed for standalone statements |
+| S3 | Four-space nesting inside statement delimiters | Fixed for single-line tags |
 | S4 | Spaces inside statement delimiters | Fixed |
-| S5 | No tab indentation | Fixed |
+| S5 | No tab indentation | Fixed inside tags; tabs before statements need `--unsafe` |
 | S6 | No statement whitespace-control delimiters | Fixed only with `--unsafe` |
 | S7 | One statement per line | Reported by j2lint |
 | V1 | Lowercase variable names | Reported by j2lint |
@@ -27,6 +27,11 @@ The formatter targets Arista j2lint 1.3's rules:
 S6 is opt-in because removing `{%-` or `-%}` can change rendered output. S7 and
 variable renames are not automatic because a formatter cannot safely infer the
 desired output or external data-model changes.
+
+Safe mode preserves literal output, quoted strings, comments, raw blocks, and
+line endings. Invalid templates and multiline tags are left unchanged. Formatting
+is checked against Jinja's parsed representation before changes are accepted.
+`--unsafe` also expands indentation tabs before statements, which can affect output.
 
 ## Install and use
 
@@ -77,7 +82,7 @@ repos:
         name: j2fix
         entry: j2fix --check
         language: system
-        files: '\\.(j2|jinja|jinja2)$'
+        files: '\.(j2|jinja|jinja2)$'
 ```
 
 ## Development
@@ -87,7 +92,5 @@ python -m pip install -e '.[dev]'
 python -m unittest discover -s tests
 pytest  # optional alternative
 ruff check .
+ruff format --check .
 ```
-
-Release instructions, including PyPI Trusted Publishing setup, are in
-[`RELEASING.md`](RELEASING.md).

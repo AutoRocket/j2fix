@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "AutoRocket" }]
 keywords = ["arista", "formatter", "jinja", "jinja2", "linting"]
 dependencies = [
+  "Jinja2>=3.1.6,<4",
   "j2lint>=1.3.0,<2.0.0",
   "tomli>=2.0.0; python_version < '3.11'",
 ]

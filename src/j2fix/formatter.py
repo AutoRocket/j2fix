@@ -3,23 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
-TAG_PATTERN = re.compile(r"({{[-+]?.*?[-+]?}}|{%[-+]?.*?[-+]?%}|{#.*?#})", re.DOTALL)
-RAW_TAG_PATTERN = re.compile(r"{%[-+]?\s*(raw|endraw)\s*[-+]?%}")
+from jinja2 import Environment, TemplateSyntaxError
 
-BLOCK_OPENERS = {
-    "autoescape",
-    "block",
-    "call",
-    "filter",
-    "for",
-    "if",
-    "macro",
-    "raw",
-    "trans",
-    "with",
-}
+OPENING = re.compile(r"{{|{%|{#")
+ENDRAW = re.compile(r"{%[-+]?\s*endraw\s*[-+]?%}")
+BLOCK_OPENERS = {"autoescape", "block", "call", "filter", "for", "if", "macro", "with"}
 BLOCK_BRANCHES = {"elif", "else"}
 
 
@@ -30,160 +21,148 @@ class FormatOptions:
     unsafe: bool = False
     tab_size: int = 4
 
+    def __post_init__(self) -> None:
+        if type(self.tab_size) is not int or self.tab_size < 1:
+            raise ValueError("tab_size must be a positive integer")
 
-def _space_operators(value: str) -> str:
-    """Give j2lint's S2 operators one space without touching quoted strings."""
+
+def _tag_parts(tag: str) -> tuple[str, str, str]:
+    opening, closing = tag[:2], tag[-2:]
+    start, end = 2, len(tag) - 2
+    if tag[start : start + 1] in {"-", "+"}:
+        opening += tag[start]
+        start += 1
+    controls = {"-", "+"} if tag.startswith("{%") else {"-"}
+    if tag[end - 1 : end] in controls:
+        end -= 1
+        closing = tag[end] + closing
+    return opening, tag[start:end], closing
+
+
+def _tags(text: str) -> Iterator[tuple[int, int, str]]:
+    """Scan source offsets, respecting quotes, bracket nesting, comments and raw."""
+    cursor = 0
+    while match := OPENING.search(text, cursor):
+        start = match.start()
+        opening = match.group()
+        closing = {"{{": "}}", "{%": "%}", "{#": "#}"}[opening]
+        index = match.end()
+        quote = None
+        brackets: list[str] = []
+        while index < len(text):
+            char = text[index]
+            if quote:
+                if char == "\\":
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = None
+            elif not brackets and text.startswith(closing, index):
+                break
+            elif opening != "{#":
+                if char in {"'", '"'}:
+                    quote = char
+                elif char in "([{":
+                    brackets.append(char)
+                elif char in ")]}":
+                    if brackets:
+                        brackets.pop()
+            index += 1
+        if index >= len(text):
+            return
+        cursor = index + 2
+        tag = text[start:cursor]
+        yield start, cursor, tag
+        if opening == "{%" and _tag_parts(tag)[1].strip() == "raw":
+            endraw = ENDRAW.search(text, cursor)
+            if endraw is None:
+                return
+            yield endraw.start(), endraw.end(), endraw.group()
+            cursor = endraw.end()
+
+
+def _space_operators(body: str, environment: Environment) -> str:
+    """Use Jinja tokens so quoted strings and scientific notation stay intact."""
+    tokens = list(environment.lex("{{ " + body + " }}"))[1:-1]
     output: list[str] = []
-    index = 0
-    quote: str | None = None
-    while index < len(value):
-        char = value[index]
-        if quote:
-            output.append(char)
-            if char == "\\" and index + 1 < len(value):
-                index += 1
-                output.append(value[index])
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            output.append(char)
-            index += 1
-            continue
-
-        operator = "==" if value[index : index + 2] == "==" else char if char in {"|", "+"} else None
-        if operator:
+    after_operator = False
+    for _, kind, value in tokens:
+        if kind == "operator" and value in {"|", "+", "=="}:
             while output and output[-1].isspace():
                 output.pop()
             if output:
                 output.append(" ")
-            output.append(operator)
-            index += len(operator)
-            while index < len(value) and value[index].isspace():
-                index += 1
-            if index < len(value):
-                output.append(" ")
+            output.extend((value, " "))
+            after_operator = True
+        elif kind == "whitespace" and after_operator:
             continue
-        output.append(char)
-        index += 1
-    return "".join(output)
-
-
-def _format_tag(tag: str, options: FormatOptions, statement_depth: int | None = None) -> str:
-    if tag.startswith("{#"):
-        return tag
-
-    expression = tag.startswith("{{")
-    opening, closing = ("{{", "}}") if expression else ("{%", "%}")
-    prefix_control = tag[len(opening) : len(opening) + 1] if tag[len(opening) :].startswith(("-", "+")) else ""
-    suffix_control = tag[-len(closing) - 1 : -len(closing)] if tag[: -len(closing)].endswith(("-", "+")) else ""
-    body_start = len(opening) + len(prefix_control)
-    body_end = len(tag) - len(closing) - len(suffix_control)
-    body = _space_operators(tag[body_start:body_end].strip())
-
-    if options.unsafe and not expression:
-        prefix_control = ""
-        suffix_control = ""
-
-    padding = " " if expression or statement_depth is None else " " * (1 + statement_depth * 4)
-    return f"{opening}{prefix_control}{padding}{body} {suffix_control}{closing}"
-
-
-def _format_non_raw_segment(text: str, options: FormatOptions) -> str:
-    parts: list[str] = []
-    cursor = 0
-    for match in TAG_PATTERN.finditer(text):
-        parts.append(text[cursor : match.start()])
-        parts.append(_format_tag(match.group(), options))
-        cursor = match.end()
-    parts.append(text[cursor:])
-    return "".join(parts)
-
-
-def _format_tags_outside_raw(text: str, options: FormatOptions) -> str:
-    """Format tags while preserving literal contents of raw blocks."""
-    parts: list[str] = []
-    cursor = 0
-    raw = False
-    for match in RAW_TAG_PATTERN.finditer(text):
-        segment = text[cursor : match.start()]
-        parts.append(segment if raw else _format_non_raw_segment(segment, options))
-        parts.append(_format_tag(match.group(), options))
-        raw = match.group(1) == "raw"
-        cursor = match.end()
-    tail = text[cursor:]
-    parts.append(tail if raw else _format_non_raw_segment(tail, options))
-    return "".join(parts)
-
-
-def _indent_standalone_statements(text: str, options: FormatOptions) -> str:
-    """Apply AVD's four-space nesting inside standalone statement delimiters."""
-    lines = text.splitlines(keepends=True)
-    depth = 0
-    raw = False
-    result: list[str] = []
-    for line in lines:
-        newline = "\n" if line.endswith("\n") else ""
-        content = line[:-1] if newline else line
-        stripped = content.strip()
-        tags = list(TAG_PATTERN.finditer(stripped))
-        if len(tags) != 1 or tags[0].span() != (0, len(stripped)) or not stripped.startswith("{%"):
-            result.append(line)
-            for tag_match in TAG_PATTERN.finditer(content):
-                tag = tag_match.group()
-                if not tag.startswith("{%"):
-                    continue
-                tag_body = re.sub(r"^{%[-+]?|[-+]?%}$", "", tag).strip()
-                tag_keyword = tag_body.split(maxsplit=1)[0] if tag_body else ""
-                if raw:
-                    if tag_keyword == "endraw":
-                        raw = False
-                        depth = max(0, depth - 1)
-                    continue
-                if tag_keyword.startswith("end"):
-                    depth = max(0, depth - 1)
-                elif tag_keyword in BLOCK_OPENERS:
-                    depth += 1
-                    raw = tag_keyword == "raw"
-            continue
-
-        leading = content[: len(content) - len(content.lstrip())]
-        trailing = content[len(content.rstrip()) :]
-        tag = stripped
-        body = re.sub(r"^{%[-+]?|[-+]?%}$", "", tag).strip()
-        keyword = body.split(maxsplit=1)[0] if body else ""
-        is_closer = keyword.startswith("end")
-        display_depth = max(0, depth - 1) if is_closer or keyword in BLOCK_BRANCHES else depth
-        formatted = _format_tag(tag, options, display_depth)
-        result.append(f"{leading}{formatted}{trailing}{newline}")
-
-        if is_closer:
-            depth = max(0, depth - 1)
-            raw = False if keyword == "endraw" else raw
-        elif keyword in BLOCK_OPENERS:
-            depth += 1
-            raw = keyword == "raw"
-    return "".join(result)
-
-
-def _replace_indentation_tabs(text: str, tab_size: int) -> str:
-    return re.sub(
-        r"(?m)^[ \t]+",
-        lambda match: match.group().replace("\t", " " * tab_size),
-        text,
-    )
+        else:
+            output.append(value.replace("\t", " ") if kind == "whitespace" else value)
+            after_operator = False
+    return "".join(output).strip()
 
 
 def format_text(text: str, options: FormatOptions | None = None) -> str:
-    """Return a deterministically formatted Jinja2 template.
+    """Format valid templates without changing their literal text in safe mode.
 
-    Safe mode fixes S1, S2, S3, S4, and indentation tabs from S5. Unsafe mode
-    additionally removes S6 whitespace-control markers, which may alter output.
-    S0, S7, V1, and V2 require author intent and are left to j2lint.
+    Comments, raw bodies, and multiline tags are preserved. Invalid syntax or
+    unsupported extensions are left for the linter to report. Unsafe mode also
+    removes statement whitespace controls and expands tabs before statements.
     """
     options = options or FormatOptions()
-    formatted = _replace_indentation_tabs(text, options.tab_size)
-    formatted = _format_tags_outside_raw(formatted, options)
-    return _indent_standalone_statements(formatted, options)
+    environment = Environment(extensions=["jinja2.ext.do", "jinja2.ext.loopcontrols"])
+    try:
+        original_tree = environment.parse(text).dump()
+    except TemplateSyntaxError:
+        return text
+
+    output: list[str] = []
+    cursor = depth = 0
+    for start, end, tag in _tags(text):
+        literal = text[cursor:start]
+        cursor = end
+        if tag.startswith("{#"):
+            output.extend((literal, tag))
+            continue
+        opening, body, closing = _tag_parts(tag)
+        expression = tag.startswith("{{")
+        keyword = body.split(maxsplit=1)[0] if body.strip() else ""
+        closer = not expression and keyword.startswith("end")
+        display_depth = max(0, depth - 1) if closer or keyword in BLOCK_BRANCHES else depth
+        if not expression:
+            if closer:
+                depth = max(0, depth - 1)
+            elif keyword in BLOCK_OPENERS or keyword == "raw":
+                depth += 1
+            elif keyword == "set":
+                assignment = False
+                for _, kind, value in environment.lex(tag):
+                    if kind == "operator" and value == "|":
+                        break
+                    if kind == "operator" and value == "=":
+                        assignment = True
+                        break
+                if not assignment:
+                    depth += 1
+
+        if "\n" in tag or "\r" in tag:
+            output.extend((literal, tag))
+            continue
+        # The text before endraw is a raw body; never expand its tabs.
+        if options.unsafe and not expression and keyword != "endraw":
+            literal = re.sub(r"(?m)^[ \t]+$", lambda m: m.group().replace("\t", " " * options.tab_size), literal)
+        if options.unsafe and not expression:
+            opening, closing = "{%", "%}"
+        body = _space_operators(body.strip(), environment)
+        padding = " " if expression else " " * (1 + display_depth * 4)
+        output.extend((literal, f"{opening}{padding}{body} {closing}"))
+    output.append(text[cursor:])
+    formatted = "".join(output)
+    try:
+        formatted_tree = environment.parse(formatted).dump()
+    except TemplateSyntaxError:
+        return text
+    # ASTs include literal output and values, but ignore source indentation.
+    if not options.unsafe and formatted_tree != original_tree:
+        return text
+    return formatted

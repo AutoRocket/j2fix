@@ -37,6 +37,21 @@ def load_config(path: Path | None) -> Config:
         return Config()
     with path.open("rb") as file:
         data: dict[str, Any] = tomllib.load(file).get("tool", {}).get("j2fix", {})
+    if not isinstance(data, dict):
+        raise ValueError("tool.j2fix must be a TOML table")
+    unknown = data.keys() - Config.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(f"unknown setting(s): {', '.join(sorted(unknown))}")
+    for name in ("extensions", "exclude"):
+        if name in data and (
+            not isinstance(data[name], list) or not all(isinstance(item, str) and item for item in data[name])
+        ):
+            raise ValueError(f"{name} must be an array of non-empty strings")
+    for name in ("unsafe", "lint"):
+        if name in data and type(data[name]) is not bool:
+            raise ValueError(f"{name} must be a boolean")
+    if "tab_size" in data and (type(data["tab_size"]) is not int or data["tab_size"] < 1):
+        raise ValueError("tab_size must be a positive integer")
     extensions = tuple(str(item).lstrip(".") for item in data.get("extensions", Config.extensions))
     exclude = tuple(str(item) for item in data.get("exclude", Config.exclude))
     return Config(
@@ -46,4 +61,3 @@ def load_config(path: Path | None) -> Config:
         lint=bool(data.get("lint", True)),
         tab_size=int(data.get("tab_size", 4)),
     )
-
