@@ -1,0 +1,7 @@
+- id: j2fix
+  name: j2fix
+  description: Format Jinja2 templates to the Arista j2lint standard
+  entry: j2fix
+  language: python
+  types: [jinja]
+
