@@ -62,28 +62,6 @@ Directory searches skip symbolic links and excluded directories. Explicitly
 passing a symbolic link, a path through a linked directory, or a Windows reparse
 point is an error. Pass the real path if you intend to format its target.
 
-Files are read with a size bound. Changed files are written to a temporary file
-in the same directory and atomically replaced only after formatting and lint
-analysis complete. Failures before replacement leave the original intact.
-Detected concurrent edits are not overwritten. POSIX group ownership and ordinary
-permission bits are preserved; setuid/setgid bits are not. Read-only files and, on POSIX, files
-owned by another user are not replaced. Atomic replacement changes the inode:
-hard-linked copies are not updated, and ACLs/extended attributes are not copied.
-
-On platforms with directory-descriptor and no-follow support (including Linux),
-file operations are anchored to open directories to prevent symlink-based
-redirection. Other platforms use link and identity checks, which do not provide
-the same protection against concurrent directory replacement. Do not run j2fix
-with elevated privileges or in directories writable by an untrusted user.
-
-The formatter limits input and output to **1 MiB of UTF-8**, lexical complexity
-to **50,000 tokens**, and combined expression/block nesting to **50 levels**.
-Parser recursion failures are reported as processing errors, not tracebacks or
-successful checks. These limits apply to standard input and the Python API too.
-They reduce resource-exhaustion risks, but are not a sandbox or a guarantee of
-bounded execution time; hosted processing should also use isolated workers with
-CPU, memory, and time limits. j2fix parses templates; it does not render them.
-
 ### When to use `--unsafe`
 
 Whitespace controls such as `{%-` and `-%}` affect rendered output. Arista's S6
