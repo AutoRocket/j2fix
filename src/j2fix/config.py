@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .limits import MAX_TAB_SIZE
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
@@ -27,7 +29,10 @@ def discover_config(start: Path) -> Path | None:
         candidate = directory / "pyproject.toml"
         if candidate.is_file():
             with candidate.open("rb") as file:
-                if "j2fix" in tomllib.load(file).get("tool", {}):
+                tool = tomllib.load(file).get("tool", {})
+                if not isinstance(tool, dict):
+                    raise ValueError("tool must be a TOML table")
+                if "j2fix" in tool:
                     return candidate
     return None
 
@@ -36,7 +41,10 @@ def load_config(path: Path | None) -> Config:
     if path is None:
         return Config()
     with path.open("rb") as file:
-        data: dict[str, Any] = tomllib.load(file).get("tool", {}).get("j2fix", {})
+        tool = tomllib.load(file).get("tool", {})
+    if not isinstance(tool, dict):
+        raise ValueError("tool must be a TOML table")
+    data: dict[str, Any] = tool.get("j2fix", {})
     if not isinstance(data, dict):
         raise ValueError("tool.j2fix must be a TOML table")
     unknown = data.keys() - Config.__dataclass_fields__.keys()
@@ -50,8 +58,8 @@ def load_config(path: Path | None) -> Config:
     for name in ("unsafe", "lint"):
         if name in data and type(data[name]) is not bool:
             raise ValueError(f"{name} must be a boolean")
-    if "tab_size" in data and (type(data["tab_size"]) is not int or data["tab_size"] < 1):
-        raise ValueError("tab_size must be a positive integer")
+    if "tab_size" in data and (type(data["tab_size"]) is not int or not 1 <= data["tab_size"] <= MAX_TAB_SIZE):
+        raise ValueError(f"tab_size must be an integer between 1 and {MAX_TAB_SIZE}")
     extensions = tuple(str(item).lstrip(".") for item in data.get("extensions", Config.extensions))
     exclude = tuple(str(item) for item in data.get("exclude", Config.exclude))
     return Config(
