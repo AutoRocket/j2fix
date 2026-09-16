@@ -6,52 +6,23 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#installation)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/AutoRocket/j2fix/blob/main/LICENSE)
 
-Format Jinja2 templates using the conventions checked by
-[Arista Networks’ j2lint](https://github.com/aristanetworks/j2lint).
+`j2fix` is a command-line formatter for Jinja2 templates, designed around the
+[Arista AVD style guide](https://avd.arista.com/5.3/docs/contribution/style-guide.html)
+and the rules enforced by [Arista Networks' `j2lint`](https://github.com/aristanetworks/j2lint).
+It fixes spacing and statement indentation, then runs `j2lint` to report anything
+that still needs your attention.
 
-`j2fix` fixes spacing and statement indentation, then reports anything that needs
-manual attention. Use it for network configuration templates, Ansible projects,
-or other Jinja templates. No Arista hardware is required.
+If you use `yamllint` to check YAML and `yamlfix` to tidy it, think of `j2fix` as
+the formatting companion to `j2lint`. It is useful for network configuration
+templates, Ansible projects, and other Jinja templates that follow Arista's style.
+You do not need Arista devices or the AVD collection to use it.
 
-An independent AutoRocket project—not affiliated with or endorsed by Arista Networks.
+> An independent project. Not affiliated with or endorsed by Arista Networks.
 
 [Usage guide](docs/usage.md) · [Security policy](SECURITY.MD) ·
 [Report a bug](https://github.com/AutoRocket/j2fix/issues)
 
-## Install
-
-Requires **Python 3.10 or newer**. Jinja2 and j2lint are installed automatically;
-Node.js is not needed.
-
-```bash
-pip install j2fix
-j2fix --version
-```
-
-## Get started
-
-Preview changes without editing your files:
-
-```bash
-j2fix --diff templates/
-```
-
-Apply the changes:
-
-```bash
-j2fix templates/
-```
-
-Check files without changing them—useful in CI:
-
-```bash
-j2fix --check templates/
-```
-
-Replace `templates/` with your own file or folder. You can pass multiple paths.
-By default, j2fix finds `.j2`, `.jinja`, and `.jinja2` files.
-
-## Before and after
+## See the difference
 
 Before:
 
@@ -64,7 +35,7 @@ interface {{interface.name}}
 {%endfor%}
 ```
 
-After: j2fix 
+After `j2fix interfaces.j2`:
 
 ```jinja
 {% for interface in interfaces %}
@@ -75,9 +46,44 @@ interface {{ interface.name }}
 {% endfor %}
 ```
 
-Normal formatting preserves the text outside Jinja tags, including the indentation
-of your generated configuration. Nested statement indentation goes inside the
-`{% … %}` tags.
+Arista-style nesting goes **inside** the `{% … %}` delimiters. The indentation
+of the configuration text itself stays intact in default mode.
+
+## Installation
+
+Requires **Python 3.10 or newer**. Jinja2 and `j2lint` are installed automatically.
+
+Install with pip
+
+```bash
+pip install j2fix
+j2fix --version
+```
+
+## Quick start
+
+Preview the changes, then apply them:
+
+```bash
+j2fix --diff templates/
+j2fix templates/
+```
+
+Check formatting and lint results without editing files:
+
+```bash
+j2fix --check templates/
+```
+
+You can pass several files or directories. With no path, `j2fix` searches the
+current directory. Directory searches include `.j2`, `.jinja`, and `.jinja2`
+files by default.
+
+```bash
+j2fix router.j2 switch.j2 templates/
+j2fix --check .
+j2fix --extensions j2,jinja,jinja2,html templates/
+```
 
 ## Useful commands
 
