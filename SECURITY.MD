@@ -21,14 +21,6 @@ logs in public issues or pull requests.
 1. Open the repository's [Security page](https://github.com/AutoRocket/j2fix/security).
 2. If **Report a vulnerability** is available, use it to send a private report
    to the maintainers.
-3. If that option is unavailable, open a
-   [new issue](https://github.com/AutoRocket/j2fix/issues/new) asking only for a
-   private security contact. For example: "Please provide a private channel for
-   a security report." Do not include the vulnerability or affected systems.
-   Wait for a private channel before sharing details.
-
-Adding this policy does not enable GitHub's private vulnerability reporting.
-That feature must be enabled separately in the repository's security settings.
 
 In your private report, include:
 

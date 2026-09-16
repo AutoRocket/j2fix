@@ -1,5 +1,11 @@
 # j2fix
 
+**Consistent Jinja2 templates. Less manual cleanup.**
+
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/AutoRocket/j2fix/tree/v0.2.0)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#installation)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/AutoRocket/j2fix/blob/main/LICENSE)
+
 Format Jinja2 templates using the conventions checked by
 [Arista Networks’ j2lint](https://github.com/aristanetworks/j2lint).
 
@@ -18,7 +24,7 @@ Requires **Python 3.10 or newer**. Jinja2 and j2lint are installed automatically
 Node.js is not needed.
 
 ```bash
-python -m pip install --upgrade j2fix
+pip install j2fix
 j2fix --version
 ```
 
@@ -50,19 +56,23 @@ By default, j2fix finds `.j2`, `.jinja`, and `.jinja2` files.
 Before:
 
 ```jinja
-{%if enabled%}
-interface {{name}}
- description {{description|default("Managed by automation")}}
+{%for interface in interfaces%}
+{%if interface.enabled%}
+interface {{interface.name}}
+ description {{interface.description|default("Managed by automation")}}
 {%endif%}
+{%endfor%}
 ```
 
-After:
+After: j2fix 
 
 ```jinja
-{% if enabled %}
-interface {{ name }}
- description {{ description | default("Managed by automation") }}
-{% endif %}
+{% for interface in interfaces %}
+{%     if interface.enabled %}
+interface {{ interface.name }}
+ description {{ interface.description | default("Managed by automation") }}
+{%     endif %}
+{% endfor %}
 ```
 
 Normal formatting preserves the text outside Jinja tags, including the indentation
@@ -151,4 +161,8 @@ See the [usage guide](docs/usage.md) for rule coverage, the Python API, and deve
 
 ## License
 
-[MIT](LICENSE). Built on Jinja2 and Arista Networks’ j2lint.
+[MIT](LICENSE). 
+
+## Acknowledgments
+
+This project is based on j2lint [Arista Networks’ j2lint](https://github.com/aristanetworks/j2lint).
