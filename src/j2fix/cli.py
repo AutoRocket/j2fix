@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import os
 import sys
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from j2lint.utils import is_rule_disabled
 
 from . import __version__
 from .config import Config, discover_config, load_config
+from .files import open_template, reject_links
 from .formatter import FormatOptions, format_text
+from .limits import MAX_INPUT_BYTES, TemplateLimitError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -46,16 +49,34 @@ def _files(paths: list[str], config: Config) -> list[Path]:
     found: set[Path] = set()
     for value in paths:
         path = Path(value)
+        reject_links(path)
         if not path.exists():
             raise FileNotFoundError(f"input does not exist: {path}")
         if path.is_file() and path.suffix.lower() in suffixes:
             found.add(path)
         elif path.is_dir():
-            found.update(
-                item
-                for item in path.rglob("*")
-                if item.is_file() and item.suffix.lower() in suffixes and not _excluded(item, config.exclude)
-            )
+
+            def on_error(error: OSError) -> None:
+                raise error
+
+            for root, directories, filenames in os.walk(path, followlinks=False, onerror=on_error):
+                directory = Path(root)
+                directories[:] = [
+                    name
+                    for name in directories
+                    if not _excluded(directory / name, config.exclude)
+                    and not (directory / name).is_symlink()
+                    and not getattr((directory / name).lstat(), "st_file_attributes", 0) & 0x400
+                ]
+                found.update(
+                    item
+                    for name in filenames
+                    if (item := directory / name).suffix.lower() in suffixes
+                    and not _excluded(item, config.exclude)
+                    and not item.is_symlink()
+                    and not getattr(item.lstat(), "st_file_attributes", 0) & 0x400
+                    and item.is_file()
+                )
     return sorted(found)
 
 
@@ -79,14 +100,14 @@ def _show_diff(name: str, old: str, new: str) -> None:
 
 
 def _process_stdin(options: FormatOptions, *, check: bool, diff: bool, lint: bool) -> int:
-    original = sys.stdin.read()
+    original = sys.stdin.read(MAX_INPUT_BYTES + 1)
     formatted = format_text(original, options)
+    lint_errors = _lint(formatted, "stdin") if lint else []
     if diff:
         _show_diff("stdin.j2", original, formatted)
     elif not check:
         sys.stdout.write(formatted)
     changed = original != formatted
-    lint_errors = _lint(formatted, "stdin") if lint else []
     for error in lint_errors:
         print(f"stdin:{error.line_number}: {error.message} ({error.rule.rule_id})", file=sys.stderr)
     return 1 if lint_errors or ((check or diff) and changed) else 0
@@ -106,7 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     lint = config.lint and not args.no_lint
 
     if args.paths == ["-"]:
-        return _process_stdin(options, check=args.check, diff=args.diff, lint=lint)
+        try:
+            return _process_stdin(options, check=args.check, diff=args.diff, lint=lint)
+        except (OSError, UnicodeError, TemplateLimitError, RecursionError) as error:
+            print(f"j2fix: stdin: {error}", file=sys.stderr)
+            return 2
     if "-" in args.paths:
         print("j2fix: stdin cannot be combined with file paths", file=sys.stderr)
         return 2
@@ -122,34 +147,35 @@ def main(argv: list[str] | None = None) -> int:
 
     changed_count = 0
     lint_count = 0
+    failed_count = 0
     for path in files:
         try:
-            with path.open(encoding="utf-8", newline="") as file:
+            with open_template(path) as file:
                 original = file.read()
-            formatted = format_text(original, options)
-            changed = original != formatted
-            if changed:
-                changed_count += 1
-                if args.diff:
-                    _show_diff(str(path), original, formatted)
-                elif args.check:
-                    print(f"would reformat {path}")
-                else:
-                    with path.open("w", encoding="utf-8", newline="") as file:
-                        file.write(formatted)
-                    print(f"reformatted {path}")
-
-            if lint:
-                errors = _lint(formatted, str(path))
+                formatted = format_text(original, options)
+                # Complete analysis before writing, including linter parser failures.
+                errors = _lint(formatted, str(path)) if lint else []
+                changed = original != formatted
+                if changed:
+                    changed_count += 1
+                    if args.diff:
+                        _show_diff(str(path), original, formatted)
+                    elif args.check:
+                        print(f"would reformat {path}")
+                    else:
+                        file.replace(formatted)
+                        print(f"reformatted {path}")
                 lint_count += len(errors)
                 for error in errors:
                     print(f"{path}:{error.line_number}: {error.message} ({error.rule.rule_id})", file=sys.stderr)
-        except (OSError, UnicodeError) as error:
+        except (OSError, UnicodeError, TemplateLimitError, RecursionError) as error:
             print(f"j2fix: {path}: {error}", file=sys.stderr)
-            return 2
+            failed_count += 1
 
-    if changed_count == 0 and lint_count == 0:
+    if changed_count == 0 and lint_count == 0 and failed_count == 0:
         print(f"{len(files)} file(s) already formatted")
     elif lint_count:
         print(f"j2fix: {lint_count} unfixable j2lint issue(s) remain", file=sys.stderr)
+    if failed_count:
+        return 2
     return 1 if lint_count or ((args.check or args.diff) and changed_count) else 0

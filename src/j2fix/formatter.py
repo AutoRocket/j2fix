@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 from jinja2 import Environment, TemplateSyntaxError
 
+from .limits import MAX_NESTING, MAX_TAB_SIZE, MAX_TOKENS, TemplateLimitError, check_size
+
 OPENING = re.compile(r"{{|{%|{#")
 ENDRAW = re.compile(r"{%[-+]?\s*endraw\s*[-+]?%}")
 BLOCK_OPENERS = {"autoescape", "block", "call", "filter", "for", "if", "macro", "with"}
@@ -22,8 +24,8 @@ class FormatOptions:
     tab_size: int = 4
 
     def __post_init__(self) -> None:
-        if type(self.tab_size) is not int or self.tab_size < 1:
-            raise ValueError("tab_size must be a positive integer")
+        if type(self.tab_size) is not int or not 1 <= self.tab_size <= MAX_TAB_SIZE:
+            raise ValueError(f"tab_size must be an integer between 1 and {MAX_TAB_SIZE}")
 
 
 def _tag_parts(tag: str) -> tuple[str, str, str]:
@@ -102,6 +104,41 @@ def _space_operators(body: str, environment: Environment) -> str:
     return "".join(output).strip()
 
 
+def _check_complexity(text: str, environment: Environment) -> None:
+    """Use the non-recursive lexer before invoking Jinja's recursive parser."""
+    brackets = blocks = 0
+    statement: list[tuple[str, str]] | None = None
+    for count, (_, kind, value) in enumerate(environment.lex(text), 1):
+        if count > MAX_TOKENS:
+            raise TemplateLimitError(f"template exceeds the {MAX_TOKENS}-token limit")
+        if kind == "operator":
+            if value in {"(", "[", "{"}:
+                brackets += 1
+            elif value in {")", "]", "}"}:
+                brackets = max(0, brackets - 1)
+        if kind == "block_begin":
+            statement = []
+        elif kind == "block_end" and statement:
+            keyword = statement[0][1]
+            if keyword in BLOCK_OPENERS:
+                blocks += 1
+            elif keyword == "set":
+                # A filter's keyword arguments are not a set assignment.
+                for token_kind, token_value in statement[1:]:
+                    if token_kind == "operator" and token_value in {"=", "|"}:
+                        blocks += token_value == "|"
+                        break
+                else:
+                    blocks += 1
+            elif keyword.startswith("end"):
+                blocks = max(0, blocks - 1)
+            statement = None
+        elif statement is not None and kind != "whitespace":
+            statement.append((kind, value))
+        if brackets + blocks > MAX_NESTING:
+            raise TemplateLimitError(f"template exceeds the {MAX_NESTING}-level nesting limit")
+
+
 def format_text(text: str, options: FormatOptions | None = None) -> str:
     """Format valid templates without changing their literal text in safe mode.
 
@@ -109,8 +146,19 @@ def format_text(text: str, options: FormatOptions | None = None) -> str:
     unsupported extensions are left for the linter to report. Unsafe mode also
     removes statement whitespace controls and expands tabs before statements.
     """
+    check_size(text)
     options = options or FormatOptions()
     environment = Environment(extensions=["jinja2.ext.do", "jinja2.ext.loopcontrols"])
+    try:
+        _check_complexity(text, environment)
+        return _format_text(text, options, environment)
+    except TemplateSyntaxError:
+        return text
+    except RecursionError as error:
+        raise TemplateLimitError("template is too complex for the Jinja parser") from error
+
+
+def _format_text(text: str, options: FormatOptions, environment: Environment) -> str:
     try:
         original_tree = environment.parse(text).dump()
     except TemplateSyntaxError:
@@ -158,6 +206,7 @@ def format_text(text: str, options: FormatOptions | None = None) -> str:
         output.extend((literal, f"{opening}{padding}{body} {closing}"))
     output.append(text[cursor:])
     formatted = "".join(output)
+    check_size(formatted)
     try:
         formatted_tree = environment.parse(formatted).dump()
     except TemplateSyntaxError:
