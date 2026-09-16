@@ -2,7 +2,7 @@
 
 **Consistent Jinja2 templates. Less manual cleanup.**
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/AutoRocket/j2fix/tree/v0.2.0)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/AutoRocket/j2fix/tree/v0.3.0)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#installation)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/AutoRocket/j2fix/blob/main/LICENSE)
 
@@ -108,12 +108,8 @@ been changed in write mode even when the command returns an error.
 - `--unsafe` can change rendered whitespace. Preview it with
   `j2fix --unsafe --diff templates/` and run your rendering tests before applying it.
 
-Keep templates in version control and review your diffs. Do not run j2fix with
-administrator privileges or assume it is a sandbox for untrusted input.
-
 The current source also adds symlink protection, atomic file replacement, and
-input limits. These changes are not yet included in the published v0.2.0 release.
-See [file safety and limits](docs/usage.md#file-safety-and-untrusted-input).
+input limits. See [file safety and limits](docs/usage.md#file-safety-and-untrusted-input).
 
 ## Configuration
 
@@ -141,7 +137,7 @@ Add this to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/AutoRocket/j2fix
-    rev: v0.2.0
+    rev: v0.3.0
     hooks:
       - id: j2fix
 ```
