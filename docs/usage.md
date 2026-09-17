@@ -204,3 +204,43 @@ Workflow actions are pinned to commit hashes. JavaScript actions use Node.js 24,
 and Dependabot is configured to propose weekly action and Python dependency updates.
 OpenSSF Scorecard provides a separate supply-chain review. Local workflow changes
 take effect on GitHub only after they are committed and pushed.
+
+## OSV dependency scanning
+
+The [OSV-Scanner workflow](../.github/workflows/osv-scanner.yml) follows the
+[official GitHub Actions integration](https://google.github.io/osv-scanner/github-action/).
+It runs on pull requests and merge queues targeting `main`, pushes to `main`,
+and every Monday at 12:30 UTC. You can also start it from **Actions → OSV-Scanner →
+Run workflow** once the workflow is on the default branch.
+
+The project declares version ranges in `pyproject.toml`, not a resolved lockfile.
+OSV needs exact package versions to check the installed dependency tree. For each
+supported Python version (3.10–3.14), a read-only preparation job creates a clean
+environment, installs the runtime and development dependencies, and exports the
+resolved versions with `pip freeze`. This includes transitive dependencies and
+pip/setuptools, but excludes j2fix itself. Isolated build-environment dependencies
+and other operating systems' dependency selections are not covered by this scan.
+
+The official reusable full-scan workflow downloads each snapshot and checks it
+against OSV. This is a **full dependency scan**, including on PRs; it is not a
+comparison that reports only newly introduced vulnerabilities. Findings fail the
+scan. Failed dependency preparation blocks scanning rather than reporting a clean
+result. These snapshots describe fresh installations at scan time, not every
+version permitted by the project's dependency ranges.
+
+The scanner uses `--no-resolve` because the exported snapshot already contains
+all installed transitive dependencies. This avoids resolving a second dependency
+graph or requiring the separate deps.dev resolution service; OSV vulnerability
+lookups still run normally.
+
+View results under the workflow run's jobs and SARIF artifacts, or under
+**Security → Code scanning**. Fork PRs keep scanning and artifact output but skip
+the code-scanning upload. The preparation job has no security-events write
+permission; that permission is restricted to the reusable scanning job. No
+personal access token or repository secret is needed.
+
+The reusable workflow and our supporting actions are pinned to commit hashes.
+Dependabot's existing GitHub Actions configuration can propose updates. Existing
+`pip-audit` checks remain enabled as a separate audit. To require a successful OSV
+scan before merging, select its checks in GitHub's branch rules after the first
+run; adding a workflow alone does not make it a required check.
