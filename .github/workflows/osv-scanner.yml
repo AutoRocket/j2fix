@@ -1,20 +1,86 @@
-name: OSV-Scanner PR Scan
+name: OSV-Scanner
 
-# Change "main" to your default branch if you use a different name, i.e. "master"
+# Official integration and dependency-preparation example:
+# https://google.github.io/osv-scanner/github-action/
 on:
   pull_request:
     branches: [main]
   merge_group:
     branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 12 * * 1"
+  workflow_dispatch:
 
 permissions:
-  # Required to upload SARIF file to CodeQL. See: https://github.com/github/codeql-action/issues/2117
-  actions: read
-  # Require writing security events to upload SARIF file to security tab
-  security-events: write
-  # Only need to read contents
   contents: read
 
 jobs:
-  scan-pr:
-    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.6.0"
+  prepare-dependencies:
+    name: Resolve dependencies (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Project code/build hooks run here, without a security-events write token.
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install project and development dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/osv-env"
+          "$RUNNER_TEMP/osv-env/bin/python" -m pip install --upgrade "pip>=26.2" "setuptools>=83"
+          "$RUNNER_TEMP/osv-env/bin/python" -m pip install ".[dev]"
+          "$RUNNER_TEMP/osv-env/bin/python" -m pip check
+
+      - name: Export exact installed versions
+        # Exclude our own package, which may not have been published yet.
+        # --all includes packaging tools; transitive dependencies are included too.
+        run: |
+          "$RUNNER_TEMP/osv-env/bin/python" -m pip freeze --all --exclude j2fix > "$RUNNER_TEMP/osv-requirements.txt"
+          test -s "$RUNNER_TEMP/osv-requirements.txt"
+
+      - name: Upload dependency snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: osv-dependencies-py${{ matrix.python-version }}
+          path: ${{ runner.temp }}/osv-requirements.txt
+          if-no-files-found: error
+          retention-days: 2
+
+  scan:
+    name: Scan dependencies (Python ${{ matrix.python-version }})
+    needs: prepare-dependencies
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    # Full scan: generated dependency snapshots cannot be compared using the
+    # reusable PR-diff workflow, which expects manifests committed on both refs.
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    with:
+      download-artifact: osv-dependencies-py${{ matrix.python-version }}
+      matrix-property: py${{ matrix.python-version }}-
+      scan-args: |-
+        --no-resolve
+        --lockfile=requirements.txt:osv-requirements.txt
+      fail-on-vuln: true
+      # Fork PRs still scan and retain results as artifacts, without SARIF upload.
+      upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}

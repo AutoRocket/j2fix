@@ -204,3 +204,18 @@ Workflow actions are pinned to commit hashes. JavaScript actions use Node.js 24,
 and Dependabot is configured to propose weekly action and Python dependency updates.
 OpenSSF Scorecard provides a separate supply-chain review. Local workflow changes
 take effect on GitHub only after they are committed and pushed.
+
+## OSV dependency scanning
+
+[OSV-Scanner](../.github/workflows/osv-scanner.yml) checks resolved third-party
+dependencies for known vulnerabilities across Python 3.10–3.14. Findings fail the scan.
+
+- **Automatic scans:** pull requests and merge queues targeting `main`, pushes to
+  `main`, and Mondays at 12:30 UTC.
+- **Manual scans:** select **Actions → OSV-Scanner → Run workflow** after merging
+  the workflow into `main`.
+- **Results:** open the workflow run or **Security → Code scanning**. Fork PR
+  results are available in the workflow run only.
+
+This checks dependency versions installed for each run—not j2fix's source code
+or every version allowed by its requirements. Existing `pip-audit` checks remain enabled.
