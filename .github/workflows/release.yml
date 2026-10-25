@@ -27,7 +27,7 @@ jobs:
       - name: Install build tools
         run: |
           python -m pip install --upgrade "pip>=26.2" "setuptools>=83"
-          python -m pip install --upgrade build twine pytest ruff pip-audit "filelock>=4.2.1"
+          python -m pip install --upgrade build twine pytest ruff pip-audit
 
       - name: Check source quality
         run: |
