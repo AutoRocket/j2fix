@@ -2,8 +2,8 @@
 
 **Consistent Jinja2 templates. Less manual cleanup.**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/AutoRocket/j2fix/tree/v0.3.0)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#installation)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/AutoRocket/j2fix/tree/v0.4.0)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](#installation)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/AutoRocket/j2fix/blob/main/LICENSE)
 
 `j2fix` is a command-line formatter for Jinja2 templates, designed around the
@@ -51,7 +51,7 @@ of the configuration text itself stays intact in default mode.
 
 ## Installation
 
-Requires **Python 3.10 or newer**. Jinja2 and `j2lint` are installed automatically.
+Requires **Python 3.11 or newer**. Jinja2 and `j2lint` are installed automatically.
 
 Install with pip
 
@@ -137,7 +137,7 @@ Add this to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/AutoRocket/j2fix
-    rev: v0.3.0
+    rev: v0.4.0
     hooks:
       - id: j2fix
 ```
