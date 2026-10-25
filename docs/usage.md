@@ -195,7 +195,7 @@ python -m pytest
 On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1` instead.
 Installing from a clone uses that checkout's source, including any local changes.
 
-CI is configured to test Python 3.10–3.14 and validate built distributions.
+CI is configured to test Python 3.11–3.14 and validate built distributions.
 The current workflow configuration also adds `pip-audit` checks for installed
 third-party packages; the project's own package is excluded from the dependency
 lookup. `pip check` checks dependency compatibility, not known vulnerabilities.
@@ -208,7 +208,7 @@ take effect on GitHub only after they are committed and pushed.
 ## OSV dependency scanning
 
 [OSV-Scanner](../.github/workflows/osv-scanner.yml) checks resolved third-party
-dependencies for known vulnerabilities across Python 3.10–3.14. Findings fail the scan.
+dependencies for known vulnerabilities across Python 3.11–3.14. Findings fail the scan.
 
 - **Automatic scans:** pull requests and merge queues targeting `main`, pushes to
   `main`, and Mondays at 12:30 UTC.
